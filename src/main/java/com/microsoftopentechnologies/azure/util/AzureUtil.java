@@ -34,7 +34,7 @@ public class AzureUtil {
 	public static final String VAL_ADMIN_USERNAME = "([a-zA-Z0-9_-]{6,15})";
 
 	
-    // Although ugly to maintain this is best way for now.
+    // Although ugly to maintain this is best way for now considering different encodings and other issues.
 	public static String DEFAULT_INIT_SCRIPT = "Set-ExecutionPolicy Unrestricted"+ "\n" + 
 						"$hudsonserverurl = $args[0]"+ "\n" + "$vmname = $args[1]" + "\n"+
 			             "$source = \"http://azure.azulsystems.com/zulu/zulu1.7.0_51-7.3.0.4-win64.zip?hudson\""+ "\n" +

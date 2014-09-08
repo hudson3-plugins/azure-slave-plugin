@@ -4,7 +4,7 @@
 	<parent>
 		<groupId>org.eclipse.hudson.plugins</groupId>
 		<artifactId>hudson-plugin-parent</artifactId>
-		<version>3.0.1</version>
+		<version>3.1.2</version>
 	</parent>
 
 	<groupId>com.microsoftopentechnologies</groupId>
@@ -13,10 +13,10 @@
 	<packaging>hpi</packaging>
 	<name>Azure Slave Plugin</name>
 	<description>Provisions slave on Azure cloud</description>
-	<url>TBD</url>
+	<url>http://wiki.hudson-ci.org/display/HUDSON/Azure+Slave+Plugin</url>
 
 	<properties>
-		<hudsonTags>TBD</hudsonTags>
+		<hudsonTags>plugin-cluster</hudsonTags>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 	</properties>
@@ -120,9 +120,9 @@
 
 
 	<scm>
-		<connection>scm:git:ssh://git@github.com/jenkinsci/azure-slave-plugin.git</connection>
-		<developerConnection>scm:git:ssh://git@github.com/jenkinsci/azure-slave-plugin.git</developerConnection>
-		<url>https://github.com/jenkinsci/azure-slave-plugin</url>
+		<connection>scm:git:git://github.com/hudson3-plugins/azure-slave-plugin.git</connection>
+		<developerConnection>scm:git:ssh://git@github.com/hudson3-plugins/azure-slave-plugin.git</developerConnection>
+		<url>https://github.com/hudson3-plugins/azure-slave-plugin</url>
 		<tag>HEAD</tag>
 	</scm>
 
