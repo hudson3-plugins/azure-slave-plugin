@@ -16,7 +16,7 @@
 	<url>http://wiki.hudson-ci.org/display/HUDSON/Azure+Slave+Plugin</url>
 
 	<properties>
-		<hudsonTags>plugin-cluster</hudsonTags>
+		<hudsonTags>cluster</hudsonTags>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 	</properties>
