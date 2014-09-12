@@ -19,7 +19,10 @@ import java.util.logging.Logger;
 
 import org.kohsuke.stapler.DataBoundConstructor;
 
+import com.microsoftopentechnologies.azure.exceptions.AzureCloudException;
+import com.microsoftopentechnologies.azure.retry.LinearRetryForAllExceptions;
 import com.microsoftopentechnologies.azure.util.Constants;
+import com.microsoftopentechnologies.azure.util.ExecutionEngine;
 
 import hudson.model.Descriptor;
 import hudson.slaves.RetentionStrategy;
@@ -34,11 +37,9 @@ public class AzureCloudRetensionStrategy extends RetentionStrategy<AzureComputer
 		this.idleTerminationMinutes = idleTerminationMinutes;
 	}
 
-	public long check(AzureComputer slaveNode) {
+	public long check(final AzureComputer slaveNode) {
         // if idleTerminationMinutes is zero then it means that never terminate the slave instance 
 		if  (idleTerminationMinutes == 0) {
-			LOGGER.info("AzureCloudRetensionStrategy: check: Idle termination time for node is zero , "
-					+ "no need to terminate the slave "+slaveNode.getDisplayName());
         	return 1;
         }
 
@@ -59,26 +60,18 @@ public class AzureCloudRetensionStrategy extends RetentionStrategy<AzureComputer
     				}
                     LOGGER.info("AzureCloudRetensionStrategy: check: Idle timeout reached for slave: "+slaveNode.getName());
                     
-                    int retryCount = 0;
-                    boolean successfull = false;
-                    // Retrying for 30 times with 30 seconds wait time between each retry
-                    while (retryCount < 30 && !successfull) {
-	                    try {
-							slaveNode.getNode().idleTimeout();
-							successfull = true;
-						} catch (Exception e) {
-							retryCount++;
-							LOGGER.info("AzureCloudRetensionStrategy: check: Exception occured while calling timeout on node , \n"
-									+ "Will retry again after 30 seconds. Current retry count "+retryCount + "\n"
-									+ "Error code "+e.getMessage());
-							// We won't get exception for RNF , so for other exception types we can retry
-							try {
-								Thread.sleep(30 * 1000);
-							} catch (InterruptedException e1) {
-								e1.printStackTrace();
-							}
-						}
-                    }
+                    java.util.concurrent.Callable<Void> task = new java.util.concurrent.Callable<Void>() {
+            			public Void call() throws Exception {
+            				slaveNode.getNode().idleTimeout();
+            				return null;
+            			}
+            		};
+            		
+            		try {
+            			ExecutionEngine.executeWithRetry(task,  new LinearRetryForAllExceptions(30 /*maxRetries*/, 30/*waitinterval*/, 30 * 60/*timeout*/));
+            		} catch (AzureCloudException e) {
+            			LOGGER.info("AzureCloudRetensionStrategy: check: could not terminate or shutdown "+slaveNode.getName());
+            		}
                 }
             } 
         }

@@ -90,6 +90,7 @@ import com.microsoft.windowsazure.management.compute.models.VirtualMachineOSImag
 import com.microsoft.windowsazure.management.compute.models.VirtualMachineRoleType;
 import com.microsoft.windowsazure.management.compute.models.VirtualMachineShutdownParameters;
 import com.microsoft.windowsazure.management.compute.models.VirtualMachineVMImageListResponse;
+import com.microsoft.windowsazure.management.models.AffinityGroupGetResponse;
 import com.microsoft.windowsazure.management.models.LocationsListResponse;
 import com.microsoft.windowsazure.management.models.LocationsListResponse.Location;
 import com.microsoft.windowsazure.management.models.RoleSizeListResponse;
@@ -102,8 +103,15 @@ import com.microsoft.windowsazure.management.storage.models.StorageAccountCreate
 import com.microsoft.windowsazure.management.storage.models.StorageAccountListResponse;
 import com.microsoft.windowsazure.management.storage.models.StorageAccountProperties;
 import com.microsoftopentechnologies.azure.exceptions.AzureCloudException;
+import com.microsoftopentechnologies.azure.retry.ExponentialRetryStrategy;
 import com.microsoftopentechnologies.azure.util.AzureUtil;
 import com.microsoftopentechnologies.azure.util.Constants;
+import com.microsoftopentechnologies.azure.util.ExecutionEngine;
+import com.microsoftopentechnologies.azure.util.FailureStage;
+import com.microsoft.windowsazure.management.network.NetworkManagementClient;
+import com.microsoft.windowsazure.management.network.models.NetworkListResponse;
+import com.microsoft.windowsazure.management.network.models.NetworkListResponse.Subnet;
+import com.microsoft.windowsazure.management.network.models.NetworkListResponse.VirtualNetworkSite;
 /**
  * Business delegate class which handles calls to Azure management service SDK.
  * @author Suresh Nallamilli (snallami@gmail.com)
@@ -136,6 +144,21 @@ public class AzureManagementServiceDelegate {
 			Map<ImageProperties, String> imageProperties = getImageProperties(config, template.getImageIdOrFamily().trim());
 			LOGGER.info("AzureManagementServiceDelegate: createVirtualMachine: imageProperties "+imageProperties);
 			
+			// Get virtual network location
+			VirtualNetworkSite virtualNetworkSite  = getVirtualNetworkSite(config, template.getVirtualNetworkName());
+			String virtualNetworkLocation = null;
+			String affinityGroupName = null;
+			if (virtualNetworkSite != null) {
+				Subnet subnet = getSubnet(virtualNetworkSite, template.getSubnetName());
+				// set derived values back in template so that there won't be case sensitive issues.
+				template.setVirtualNetworkName(virtualNetworkSite.getName());
+				template.setSubnetName(subnet != null ? subnet.getName() : null);
+				virtualNetworkLocation = getVirtualNetworkLocation(config, virtualNetworkSite);
+				affinityGroupName = virtualNetworkSite.getAffinityGroup();
+			}
+			String resourceLocation = virtualNetworkLocation == null ? template.getLocation() : virtualNetworkLocation;
+			
+						
 			String mediaURI = imageProperties.get(ImageProperties.MEDIAURI);
 			String customImageStorageAccountName = null ;
 			if (mediaURI != null) {
@@ -149,11 +172,10 @@ public class AzureManagementServiceDelegate {
 			// create storage account if required
 			if (customImageStorageAccountName == null && AzureUtil.isNull(template.getStorageAccountName()))  {
 				try {
-					String storageAccountName = createStorageAccount(config, template.getLocation());
+					String storageAccountName = createStorageAccount(config, resourceLocation, affinityGroupName);
 					template.setStorageAccountName(storageAccountName);
 				} catch(Exception e) {
-					template.setTemplateStatus(Constants.TEMPLATE_STATUS_DISBALED);
-					template.setTemplateStatusDetails("Pre-Provisioning Failure: Exception occured while creating storage account. Root cause: "+e.getMessage());
+					template.handleTemplateStatus("Pre-Provisioning Failure: Exception occured while creating storage account. Root cause: "+e.getMessage(), FailureStage.PREPROVISIONING, null);
 					throw new AzureCloudException("Pre-Provisioning Failure: Exception occured while creating storage account. Root cause: "+e.getMessage());
 				}
 			}
@@ -166,7 +188,7 @@ public class AzureManagementServiceDelegate {
 			int retryCount = 0;
 			
 			// Check if cloud service exists or not , if not create new one
-			if ((createCloudServiceIfNotExists(config, cloudServiceName, template.getLocation())) || (deploymentName == null) ) {
+			if ((createCloudServiceIfNotExists(config, cloudServiceName, resourceLocation, affinityGroupName)) || (deploymentName == null) ) {
 				deploymentName = cloudServiceName;
 				LOGGER.info("AzureManagementServiceDelegate: createVirtualMachine: Creating deployment " + deploymentName +
 						    " for cloud service " + cloudServiceName);
@@ -181,9 +203,8 @@ public class AzureManagementServiceDelegate {
 					} catch (Exception ex) {
 						handleProvisioningException(ex, template, deploymentName);
 						
-						if (retryCount == Constants.MAX_PROV_RETRIES) {
-							template.setTemplateStatus(Constants.TEMPLATE_STATUS_DISBALED);
-							template.setTemplateStatusDetails("Provisioning Failure: Not able to create virtual machine even after 20 retries "+ex);
+						if (retryCount >= Constants.MAX_PROV_RETRIES) {
+							template.handleTemplateStatus("Provisioning Failure: Not able to create virtual machine even after 20 retries "+ex, FailureStage.PROVISIONING, null);
 							throw new AzureCloudException("AzureManagementServiceDelegate: createVirtualMachine: Unable to create virtual machine "+ex.getMessage());
 						}
 					}
@@ -206,8 +227,7 @@ public class AzureManagementServiceDelegate {
 						handleProvisioningException(ex, template, deploymentName);
 						
 						if (retryCount == Constants.MAX_PROV_RETRIES) {
-							template.setTemplateStatus(Constants.TEMPLATE_STATUS_DISBALED);
-							template.setTemplateStatusDetails("Provisioning Failure: Not able to create virtual machine even after 20 retries "+ex);
+							template.handleTemplateStatus("Provisioning Failure: Not able to create virtual machine even after 20 retries "+ex, FailureStage.PROVISIONING, null);
 							throw new AzureCloudException("AzureManagementServiceDelegate: createVirtualMachine: Unable to create virtual machine "+ex.getMessage());
 						}
 												
@@ -218,7 +238,7 @@ public class AzureManagementServiceDelegate {
 			}
 			
 			// Reset template status if call is successful after retries
-			if (successful && Constants.TEMPLATE_STATUS_ACTIVE.equals(template.getTemplateStatus())) {
+			if (successful && Constants.TEMPLATE_STATUS_DISBALED.equals(template.getTemplateStatus())) {
 				template.setTemplateStatus(Constants.TEMPLATE_STATUS_ACTIVE);
 				template.setTemplateStatusDetails("");
 			}
@@ -234,9 +254,10 @@ public class AzureManagementServiceDelegate {
 	
 	/** Handle provisioning errors 	*/
 	public static void handleProvisioningException(Exception ex, AzureSlaveTemplate template, String deploymentName) throws AzureCloudException {
+
 		// conflict error - wait for 1 minute and try again
-		if (isConflictError(ex.getMessage())) {
-			if (isDeploymentAlreadyOccupied(ex.getMessage())) {
+		if (AzureUtil.isConflictError(ex.getMessage())) {
+			if (AzureUtil.isDeploymentAlreadyOccupied(ex.getMessage())) {
 				LOGGER.info("AzureManagementServiceDelegate: handleProvisioningServiceException: Deployment already occupied");
 				
 				// Throw exception so that in retry this will go through
@@ -249,22 +270,20 @@ public class AzureManagementServiceDelegate {
 					//ignore
 				}
 			}
-		} else if (isBadRequestOrForbidden(ex.getMessage())) {
+		} else if (AzureUtil.isBadRequestOrForbidden(ex.getMessage())) {
 			LOGGER.info("AzureManagementServiceDelegate: handleProvisioningServiceException: Got bad request or forbidden");
 			// no point in retrying
-			template.setTemplateStatus(Constants.TEMPLATE_STATUS_DISBALED);
-			template.setTemplateStatusDetails("Provisioning Failure: Exception occured while creating virtual machine. Root cause: "+ex.getMessage());
+			template.handleTemplateStatus("Provisioning Failure: Exception occured while creating virtual machine. Root cause: "+ex.getMessage(), FailureStage.PROVISIONING, null);
 			throw new AzureCloudException("Provisioning Failure: Exception occured while creating virtual machine. Root cause: "+ex.getMessage());
-		} else if (isDeploymentNotFound(ex.getMessage(), deploymentName)) {
+		} else if (AzureUtil.isDeploymentNotFound(ex.getMessage(), deploymentName)) {
 			LOGGER.info("AzureManagementServiceDelegate: handleProvisioningServiceException: Deployment not found");
 			
 			// Throw exception so that in retry this will go through
 			throw new AzureCloudException("Provisioning Failure: Exception occured while creating virtual machine. Root cause: "+ex.getMessage());
 		} else {
 			LOGGER.info("AzureManagementServiceDelegate: handleProvisioningException: "+ex);
-			// set template status to disabled so that hudson won't provision more slaves
-			template.setTemplateStatus(Constants.TEMPLATE_STATUS_DISBALED);
-			template.setTemplateStatusDetails("Provisioning Failure: Exception occured while creating virtual machine. Root cause: "+ex.getMessage());
+			// set template status to disabled so that jenkins won't provision more slaves
+			template.handleTemplateStatus("Provisioning Failure: Exception occured while creating virtual machine. Root cause: "+ex.getMessage(), FailureStage.PROVISIONING, null);
 			// wait for 10 seconds and then retry
 			try {
 				Thread.sleep(10 * 1000);
@@ -272,40 +291,6 @@ public class AzureManagementServiceDelegate {
 				//ignore
 			}
 		}
-	}
-	
-	private static boolean isConflictError(String errorMessage) {
-		if (AzureUtil.isNull(errorMessage)) {
-			return false;
-		}
-		
-		return errorMessage.contains(Constants.ERROR_CODE_SERVICE_EXCEPTION) && errorMessage.contains(Constants.ERROR_CODE_CONFLICT);
-	}
-	
-	private static boolean isBadRequestOrForbidden(String errorMessage) {
-		if (AzureUtil.isNull(errorMessage)) {
-			return false;
-		}
-
-		return errorMessage.contains(Constants.ERROR_CODE_SERVICE_EXCEPTION) && 
-				(errorMessage.contains(Constants.ERROR_CODE_BAD_REQUEST) || errorMessage.contains(Constants.ERROR_CODE_FORBIDDEN));
-	}
-	
-	private static boolean isDeploymentNotFound(String errorMessage, String deploymentName) {
-		if (AzureUtil.isNull(errorMessage) || AzureUtil.isNull(deploymentName)) {
-			return false;
-		}
-		
-		return errorMessage.contains(Constants.ERROR_CODE_SERVICE_EXCEPTION) && 
-				errorMessage.contains(Constants.ERROR_CODE_RESOURCE_NF) && errorMessage.contains("The deployment name '"+deploymentName+"' does not exist" );
-	}
-	
-	private static boolean isDeploymentAlreadyOccupied(String errorMessage) {
-		if (AzureUtil.isNull(errorMessage)) {
-			return false;
-		}	
-		
-		return errorMessage.contains("The specified deployment slot Production is occupied");
 	}
 	
 	/** Retrieves production slot deployment name for cloud service*/
@@ -377,14 +362,6 @@ public class AzureManagementServiceDelegate {
 	public static ArrayList<ResourceExtensionReference> addResourceExtenions(String roleName, String storageAccountName, 
 			String storageAccountKey, String containerName, String blobURL, String fileName, String hudsonServerURL) throws Exception {
 		ArrayList<ResourceExtensionReference> resourceExtensions = new ArrayList<ResourceExtensionReference>();
-		// Add BG info extension
-		ResourceExtensionReference bgInfo = new ResourceExtensionReference();
-		resourceExtensions.add(bgInfo);
-		bgInfo.setReferenceName("BGInfo");
-		bgInfo.setPublisher("Microsoft.Compute");
-		bgInfo.setName("BGInfo");
-		bgInfo.setVersion("1.*");
-		bgInfo.setState("Enable");
 
 		// Add custom script extension
 		ResourceExtensionReference customExtension = new ResourceExtensionReference();
@@ -420,7 +397,6 @@ public class AzureManagementServiceDelegate {
 	/** JSON string custom script public config value */
 	public static String getCustomScriptPublicConfigValue(String sasURL, String fileName, String hudsonServerURL, String vmName)
 	throws Exception {
-		LOGGER.info("AzureManagementServiceDelegate: getCustomScriptPublicConfigValue: hudson server url "+hudsonServerURL+ " vmName"+vmName);
 		JsonFactory factory = new JsonFactory();
 		StringWriter stringWriter = new StringWriter();
 		JsonGenerator json = factory.createJsonGenerator(stringWriter);
@@ -614,10 +590,13 @@ public class AzureManagementServiceDelegate {
 				break;
 			}
 		}
-			
+		
+		LOGGER.info("AzureManagementServiceDelegate: parseDeploymentResponse: found slave OS type as "+osType);
 		AzureCloud azureCloud = template.getAzureCloud();
 			
 		try {
+			LOGGER.info("AzureManagementServiceDelegate: parseDeploymentResponse: no of executors "+template.getNoOfParallelJobs());
+			
 			return new AzureSlave(params.getRoles().get(0).getRoleName(), template.getTemplateName(),
 					template.getTemplateDesc(),osType, template.getSlaveWorkSpace(),
 					template.getNoOfParallelJobs(),
@@ -689,7 +668,7 @@ public class AzureManagementServiceDelegate {
 	 * @throws ExecutionException
 	 * @throws TransformerException
 	 */
-	private static boolean createCloudServiceIfNotExists(Configuration config, String cloudServiceName, String location) throws IOException,
+	private static boolean createCloudServiceIfNotExists(Configuration config, String cloudServiceName, String location, String affinityGroupName) throws IOException,
 			ServiceException, ParserConfigurationException, SAXException, AzureCloudException, URISyntaxException, InterruptedException,
 			ExecutionException, TransformerException {
 		ComputeManagementClient client = ServiceDelegateHelper.getComputeManagementClient(config);
@@ -713,7 +692,10 @@ public class AzureManagementServiceDelegate {
 		HostedServiceCreateParameters params = new HostedServiceCreateParameters();
 		params.setServiceName(cloudServiceName);
 		params.setLabel(cloudServiceName);
-		params.setLocation(location);
+		if (affinityGroupName == null) 
+			params.setLocation(location);
+		else
+			params.setAffinityGroup(affinityGroupName);
 		client.getHostedServicesOperations().create(params);
 
 		LOGGER.info("AzureManagementServiceDelegate: createCloudServiceIfNotExists: Created new cloud service with name " + cloudServiceName);
@@ -743,7 +725,7 @@ public class AzureManagementServiceDelegate {
 	
 	/**
 	 * Checks if cloud service already exists in the subscription.
-	 * @param client ComputeManagementClient
+	 * @param config ComputeManagementClient
 	 * @param cloudServiceName cloud service name
 	 * @return true if cloud service exists else returns false
 	 */
@@ -758,7 +740,7 @@ public class AzureManagementServiceDelegate {
 				return true;
 			}
 		} catch (Exception e) {
-			LOGGER.info("AzureManagementServiceDelegate: doesCloudServiceLocationMatch: Got exception while chekcing for cloud service location");
+			LOGGER.info("AzureManagementServiceDelegate: doesCloudServiceLocationMatch: Got exception while checking for cloud service location");
 			throw e;
 		}
 		
@@ -789,14 +771,9 @@ public class AzureManagementServiceDelegate {
 	public static boolean validateCloudServiceName(Configuration config, String cloudServiceName) throws Exception {
 		ComputeManagementClient client = ComputeManagementService.create(config);
 		
-		// Check if cloud service name already exists in subscription
-		if (checkIfCloudServiceExists(client, cloudServiceName)) {
-			return true;
-		} else if (isCloudServiceNameAvailable(client, cloudServiceName)) { // Check if name is available
-			return true;
-		}
-		
-		return false;
+		// Check if cloud service name already exists in subscription or if name is available
+        return checkIfCloudServiceExists(client, cloudServiceName) ||
+                isCloudServiceNameAvailable(client, cloudServiceName);
 	}
 
 	/**
@@ -856,7 +833,7 @@ public class AzureManagementServiceDelegate {
 		role.setProvisionGuestAgent(true);
 		// set OS disk configuration param
 		ImageType imageType = ImageType.valueOf(imageProperties.get(ImageProperties.IMAGETYPE));
-		if (ImageType.VMIMAGE.equals(imageType)) {
+		if (ImageType.VMIMAGE_GENERALIZED.equals(imageType) || ImageType.VMIMAGE_SPECIALIZED.equals(imageType)) {
 			role.setVMImageName(imageProperties.get(ImageProperties.NAME));
 		} else {
 			role.setOSVirtualHardDisk(getOSVirtualHardDisk(config, template, cloudServiceName, virtualMachineName, imageProperties));
@@ -870,10 +847,17 @@ public class AzureManagementServiceDelegate {
 			role.setResourceExtensionReferences(handleCustomScriptExtension(config, virtualMachineName, cloudServiceName, template));
 		}
 
-		// set OS configuration params
-		configurationSets.add(getOSConfigurationSet(template, cloudServiceName, virtualMachineName, osType));
+		if (!ImageType.VMIMAGE_SPECIALIZED.equals(imageType)) {
+			// set OS configuration params
+			configurationSets.add(getOSConfigurationSet(template, cloudServiceName, virtualMachineName, osType));
+		}
 		// set Network configuration set
-		configurationSets.add(getNetworkConfigurationSet(osType, template.getSlaveLaunchMethod()));
+		configurationSets.add(getNetworkConfigurationSet(osType, template));
+		
+		// set virtual network name
+		if (AzureUtil.isNotNull(template.getVirtualNetworkName())) {
+			parameters.setVirtualNetworkName(template.getVirtualNetworkName().trim());
+		}
 		return parameters;
 	}
 	
@@ -898,7 +882,7 @@ public class AzureManagementServiceDelegate {
 		params.setProvisionGuestAgent(true);
 		// set OS disk configuration param
 		ImageType imageType = ImageType.valueOf(imageProperties.get(ImageProperties.IMAGETYPE));
-		if (ImageType.VMIMAGE.equals(imageType)) {
+		if (ImageType.VMIMAGE_GENERALIZED.equals(imageType) || ImageType.VMIMAGE_SPECIALIZED.equals(imageType)) {
 			params.setVMImageName(imageProperties.get(ImageProperties.NAME));
 		} else {
 			params.setOSVirtualHardDisk(getOSVirtualHardDisk(config, template, cloudServiceName, virtualMachineName, imageProperties));
@@ -912,10 +896,12 @@ public class AzureManagementServiceDelegate {
 			params.setResourceExtensionReferences(handleCustomScriptExtension(config, virtualMachineName, cloudServiceName, template));
 		}
 		
-		// set OS configuration params
-		configurationSets.add(getOSConfigurationSet(template, cloudServiceName, virtualMachineName, osType));
+		if (!ImageType.VMIMAGE_SPECIALIZED.equals(imageType)) {
+			// set OS configuration params
+			configurationSets.add(getOSConfigurationSet(template, cloudServiceName, virtualMachineName, osType));
+		}
 		// set Network configuration set
-		configurationSets.add(getNetworkConfigurationSet(osType, template.getSlaveLaunchMethod()));
+		configurationSets.add(getNetworkConfigurationSet(osType, template));
 		return params;
 	}
 	
@@ -1003,9 +989,9 @@ public class AzureManagementServiceDelegate {
 	}
 	
 	/** Prepares OS specific configuration 
-	 * @param slaveLaunchMethod 
+	 * @param template.getSlaveLaunchMethod() 
 	 * @param osType */
-	private static ConfigurationSet getNetworkConfigurationSet(String osType, String slaveLaunchMethod) {
+	private static ConfigurationSet getNetworkConfigurationSet(String osType, AzureSlaveTemplate template) {
 		ConfigurationSet networkConfigset = new ConfigurationSet();
 		networkConfigset.setConfigurationSetType(ConfigurationSetTypes.NETWORKCONFIGURATION);
 		// Define endpoints
@@ -1013,7 +999,7 @@ public class AzureManagementServiceDelegate {
 		networkConfigset.setInputEndpoints(enpoints);
 		
 		// Add SSH endpoint if launch method is SSH
-		if (Constants.LAUNCH_METHOD_SSH.equalsIgnoreCase(slaveLaunchMethod)) {
+		if (Constants.LAUNCH_METHOD_SSH.equalsIgnoreCase(template.getSlaveLaunchMethod())) {
 			InputEndpoint sshPort = new InputEndpoint();
 			enpoints.add(sshPort);
 			sshPort.setName(Constants.EP_SSH_NAME);
@@ -1028,6 +1014,14 @@ public class AzureManagementServiceDelegate {
 			rdpPort.setName(Constants.EP_RDP_NAME);
 			rdpPort.setProtocol(Constants.PROTOCOL_TCP);
 			rdpPort.setLocalPort(Constants.DEFAULT_RDP_PORT);
+		}
+		
+		if (AzureUtil.isNotNull(template.getVirtualNetworkName()) && 
+				AzureUtil.isNotNull(template.getSubnetName())) {
+			ArrayList<String> subnetNames = new ArrayList<String>();
+			subnetNames.add(template.getSubnetName().trim());
+			
+			networkConfigset.setSubnetNames(subnetNames);
 		}
 		
 		return networkConfigset;
@@ -1081,8 +1075,8 @@ public class AzureManagementServiceDelegate {
 		return storageAccounts;
 	}
 	
-	public static String createStorageAccount(Configuration config, String location) throws Exception {
-		LOGGER.info("AzureManagemenServiceDelegate: createStorageAccount: location "+location);
+	public static String createStorageAccount(Configuration config, String location, String affinityGroupName) throws Exception {
+		LOGGER.info("AzureManagemenServiceDelegate: createStorageAccount: location "+location+ " affinityGroup "+affinityGroupName);
 		StorageManagementClient client = StorageManagementService.create(config);
 		
 		// Prepare storage account create properties
@@ -1094,7 +1088,11 @@ public class AzureManagementServiceDelegate {
 		} while (!isStorageAccountNameAvailable(config, name));
 		
 		sacp.setName(name);
-		sacp.setLocation(location);
+		if (affinityGroupName == null) {
+			sacp.setLocation(location);
+		} else {
+			sacp.setAffinityGroup(affinityGroupName);
+		}
 		sacp.setLabel(name);
 		
 		OperationStatusResponse response = client.getStorageAccountsOperations().create(sacp);
@@ -1172,18 +1170,22 @@ public class AzureManagementServiceDelegate {
 					passPhrase, serviceManagementURL);
 			return verifyConfiguration(config);
 		} catch (Exception e) {
-			e.printStackTrace();
 			return "Failure: Exception occured while validating subscription configuration" + e;
 		}
 	}
 	
-	public static String verifyConfiguration(Configuration config) {
+	public static String verifyConfiguration(final Configuration config) {
+		Callable<String> task = new Callable<String>() {
+			public String call() throws Exception {
+				ComputeManagementClient client = ServiceDelegateHelper.getComputeManagementClient(config);
+				client.getHostedServicesOperations().checkNameAvailability("CI_SYSTEM");
+				return "Success";
+			}
+		};
+		
 		try {
-			ComputeManagementClient client = ServiceDelegateHelper.getComputeManagementClient(config);
-			client.getHostedServicesOperations().checkNameAvailability("CI_SYSTEM");
-			return "Success";
-		} catch (Exception e) {
-			e.printStackTrace();
+			return ExecutionEngine.executeWithRetry(task, new ExponentialRetryStrategy(3 /*Max. retries*/, 2/*Max wait interval between retries*/));
+		} catch (AzureCloudException e) {
 			return "Failure: Exception occured while validating subscription configuration" + e;
 		}
 	}
@@ -1262,7 +1264,6 @@ public class AzureManagementServiceDelegate {
 	
 	/** Deletes Azure virtual machine */
 	public static void terminateVirtualMachine(AzureSlave slave, boolean sync) throws Exception {
-		LOGGER.info("AzureManagementServiceDelegate: terminateVirtualMachine: terminate VM called with sync flag "+sync);
 		ComputeManagementClient client = ServiceDelegateHelper.getComputeManagementClient(slave);
 		try {
 			if (getRoleCount(client, slave.getCloudServiceName()) > 1) {
@@ -1281,8 +1282,6 @@ public class AzureManagementServiceDelegate {
 		} catch (ServiceException se) {
 			// Check if VM is already deleted 
 			if (Constants.ERROR_CODE_RESOURCE_NF.equalsIgnoreCase(se.getErrorCode())) {
-				LOGGER.info("AzureManagementServiceDelegate: terminateVirtualMachine: error code " + se.getErrorCode()+ " VM not found.\n"
-						+ " Ignoring exception since VM is not found in Azure cloud. ");
 				// If VM is already deleted then just ignore exception.
 				return;
 			}
@@ -1320,7 +1319,6 @@ public class AzureManagementServiceDelegate {
 	}
 	
 	public static Set<String> getVirtualImageFamilyList(Configuration config) throws Exception {
-		LOGGER.info ("AzureManagementServiceDelegate: getVirtualImageFamilyList: Getting VM Family list ");
 		Set<String> imageFamilies = new HashSet<String>();
 		
 		for (VirtualMachineOSImage image: getVirtualMachineOSImageList(config)) {
@@ -1387,7 +1385,11 @@ public class AzureManagementServiceDelegate {
 							OsType = "Linux";
 						}
 						imageProps.put(ImageProperties.OSTYPE, OsType);
-						imageProps.put(ImageProperties.IMAGETYPE, ImageType.VMIMAGE.name());
+						String vmOSState = image.getOSDiskConfiguration().getOSState();
+						if (vmOSState != null && vmOSState.equalsIgnoreCase("Generalized"))
+							imageProps.put(ImageProperties.IMAGETYPE, ImageType.VMIMAGE_GENERALIZED.name());
+						else
+							imageProps.put(ImageProperties.IMAGETYPE, ImageType.VMIMAGE_SPECIALIZED.name());
 						imageProps.put(ImageProperties.MEDIAURI, image.getOSDiskConfiguration().getMediaLink().toString());
 					}
 					return image.getName();
@@ -1487,6 +1489,70 @@ public class AzureManagementServiceDelegate {
 			
 		return null;
 	}
+	
+	/** Returns virtual network site properties */
+	private static VirtualNetworkSite getVirtualNetworkSite(Configuration config, String virtualNetworkName)  {
+		try {
+			NetworkManagementClient client = ServiceDelegateHelper.getNetworkManagementClient(config);
+			NetworkListResponse listResponse = client.getNetworksOperations().list();
+			
+			if (listResponse != null) {
+				ArrayList<VirtualNetworkSite> sites = listResponse.getVirtualNetworkSites();
+				
+				for (VirtualNetworkSite site : sites) {
+					if (virtualNetworkName.equalsIgnoreCase(site.getName())) {
+						return site;
+					}
+				}
+			}
+		} catch (Exception e) {
+			LOGGER.severe("AzureManagementServiceDelegate: getVirtualNetworkInfo: Got exception while getting virtual network info "+virtualNetworkName);
+		}
+		return null;
+	}
+	
+	private static String getVirtualNetworkLocation(Configuration config, VirtualNetworkSite virtualNetworkSite) {
+		LOGGER.info("AzureManagementServiceDelegate: getVirtualNetworkLocation: virtualNetworkName is "+virtualNetworkSite.getName());
+		
+		if (virtualNetworkSite.getAffinityGroup() != null) {
+			return getAffinityGroupLocation(config, virtualNetworkSite.getAffinityGroup());
+		}/* currently virtual network site does not have location attribute
+		
+		 else if (virtualNetworkSite.getLocation() != null) {  
+			return virtualNetworkSite.getLocation();
+		} */
+		LOGGER.info("AzureManagementServiceDelegate: getVirtualNetworkLocation: returning null");
+		return null;
+	}
+	
+	private static Subnet getSubnet(VirtualNetworkSite virtualNetworkSite, String subnetName) {
+		if (AzureUtil.isNotNull(subnetName)) {
+			ArrayList<Subnet> subnets = virtualNetworkSite.getSubnets();
+			if (subnets != null) {
+				for (Subnet subnet : subnets) {
+					if (subnet.getName().equalsIgnoreCase(subnetName)) {
+						return subnet;
+					}
+				}
+			}
+		}
+		return null;
+	}
+	
+	private static String getAffinityGroupLocation(Configuration config, String affinityGroup) {
+		LOGGER.info("AzureManagementServiceDelegate: getAffinityGroupLocation: affinityGroup is "+affinityGroup);
+		ManagementClient client = ServiceDelegateHelper.getManagementClient(config);
+		AffinityGroupGetResponse response;
+		
+		try {
+			response = client.getAffinityGroupsOperations().get(affinityGroup);
+			return response.getLocation();
+		} catch (Exception e) {
+			e.printStackTrace();
+		} 
+		LOGGER.info("AzureManagementServiceDelegate: getAffinityGroupLocation: returning null");
+		return null;
+	}
     
 	/**
 	 * Verifies template configuration by making server calls if needed
@@ -1495,7 +1561,8 @@ public class AzureManagementServiceDelegate {
 	public static List<String> verifyTemplate(String subscriptionId, String serviceManagementCert, String passPhrase,
 			String serviceManagementURL, String maxVirtualMachinesLimit, String templateName, String labels, String location, String virtualMachineSize,
 			String storageAccountName, String noOfParallelJobs, String imageIdOrFamily, String slaveLaunchMethod, String initScript, String adminUserName,
-			String adminPassword, String retentionTimeInMin, String cloudServiceName,String templateStatus,String jvmOptions, boolean returnOnSingleError)  {
+			String adminPassword, String virtualNetworkName, String subnetName, String retentionTimeInMin, String cloudServiceName,String templateStatus,
+			String jvmOptions, boolean returnOnSingleError)  {
 		
 		List<String> errors = new ArrayList<String>();
 		Configuration config = null;
@@ -1557,14 +1624,15 @@ public class AzureManagementServiceDelegate {
 		}
 		
 		verifyTemplateAsync(config, templateName, maxVirtualMachinesLimit, cloudServiceName, location, 
-							imageIdOrFamily, slaveLaunchMethod, storageAccountName, errors, returnOnSingleError);
-		
+				imageIdOrFamily, slaveLaunchMethod, storageAccountName, virtualNetworkName, subnetName, errors, returnOnSingleError);
+
 		return errors;
 	}
 	
 	private static void verifyTemplateAsync(final Configuration config, final String templateName, final String maxVirtualMachinesLimit,
 			final String cloudServiceName, final String location, final String imageIdOrFamily, 
-			final String slaveLaunchMethod, final String storageAccountName, List<String> errors, boolean returnOnSingleError ) {
+			final String slaveLaunchMethod, final String storageAccountName, final String virtualNetworkName, 
+			final String subnetName, List<String> errors, boolean returnOnSingleError ) {
 		
 		List<Callable<String>> verificationTaskList = new ArrayList<Callable<String>>();
 		
@@ -1594,6 +1662,16 @@ public class AzureManagementServiceDelegate {
 		};
 		verificationTaskList.add(callVerifyImageIdOrFamily);
 		
+		// Callable for virtual network.
+		Callable<String> callVerifyVirtualNetwork = new Callable<String>() {
+			public String call() throws Exception {
+				return verifyVirtualNetwork(config, virtualNetworkName, subnetName);
+  	        }
+		};
+		verificationTaskList.add(callVerifyVirtualNetwork);
+		
+		
+		
 		ExecutorService executorService = Executors.newFixedThreadPool(verificationTaskList.size());
     	
 		try {
@@ -1615,6 +1693,7 @@ public class AzureManagementServiceDelegate {
 			errors.add("Exception occured while validating temaplate "+interruptedException);
 		}
 	}
+
 	
 	private static void addValidationResultIfFailed(String validationResult, List<String> errors) {
 		if (!validationResult.equalsIgnoreCase(Constants.OP_SUCCESS)) {
@@ -1706,6 +1785,7 @@ public class AzureManagementServiceDelegate {
 		return Constants.OP_SUCCESS;
 	}
 	
+	// For future use
 	private static String verifyStorageAccountName(Configuration config, String storageAccountName, String location) {
 		try {
 			if (isNullOrEmpty(storageAccountName)) {
@@ -1791,6 +1871,38 @@ public class AzureManagementServiceDelegate {
 			}
 			return Constants.OP_SUCCESS;
 	}
+	
+	private static String verifyVirtualNetwork(Configuration config, String virtualNetworkName, String subnetName) {
+		if (AzureUtil.isNotNull(virtualNetworkName)) {
+			VirtualNetworkSite virtualNetworkSite = getVirtualNetworkSite(config, virtualNetworkName);
+		
+			if (virtualNetworkSite == null) {
+				return Messages.Azure_GC_Template_VirtualNetwork_NotFound(virtualNetworkName);
+			}
+			
+			if (AzureUtil.isNotNull(subnetName)) {
+				ArrayList<Subnet> subnets = virtualNetworkSite.getSubnets();
+				if (subnets != null) {
+					
+					boolean found = false;
+					for (Subnet subnet : subnets) {
+						if (subnet.getName().equalsIgnoreCase(subnetName)) {
+							found = true;
+							break;
+						}
+					}
+					
+					if (!found) {
+						return Messages.Azure_GC_Template_subnet_NotFound(subnetName);
+					}
+				}
+			}
+		} else if (AzureUtil.isNotNull(subnetName)) {
+			return Messages.Azure_GC_Template_VirtualNetwork_Null_Or_Empty();
+		}
+		return Constants.OP_SUCCESS;
+	}
+	
 	
 	
 	private static String verifyAdminUserName(String userName) {

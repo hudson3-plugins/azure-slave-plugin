@@ -13,11 +13,23 @@
  See the License for the specific language governing permissions and
  limitations under the License.
  */
-package com.microsoftopentechnologies.azure;
+package com.microsoftopentechnologies.azure.retry;
 
-public enum ImageType {
-	OSIMAGE,
-	OSIMAGE_CUSTOM,
-	VMIMAGE_GENERALIZED,
-	VMIMAGE_SPECIALIZED
+import com.microsoftopentechnologies.azure.exceptions.AzureCloudException;
+
+/**
+ * @author Suresh Nallamilli (snallami@gmail.com)
+ */
+public interface RetryStrategy {
+	
+	public void handleRetry(Exception e) throws AzureCloudException;
+	
+	public boolean canRetry(int currentRetryCount, Exception e) throws AzureCloudException;
+	
+	public int getWaitPeriodInSeconds(int currentRetryCount, Exception e);
+	
+	public int getMaxTimeoutInSeconds();
+	
+	public void reset();
+	
 }
