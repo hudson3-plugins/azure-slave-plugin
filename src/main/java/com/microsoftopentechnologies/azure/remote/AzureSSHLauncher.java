@@ -58,6 +58,17 @@ public class AzureSSHLauncher extends ComputerLauncher {
 		AzureComputer computer = (AzureComputer)slaveComputer;
 		AzureSlave slave = computer.getNode();
 		
+		//check if VM is already stopped or stopping or getting deleted , if yes then there is no point in trying to connect
+		//Added this check - since after restarting hudson master, hudson is trying to connect to all the slaves although slaves are suspended.
+		try {
+			if (!slave.isVMAliveOrHealthy()) {
+				return;
+			}
+		} catch (Exception e1) {
+			// ignoring exception purposefully
+			e1.printStackTrace();
+		}
+		
 		PrintStream logger = listener.getLogger();
 		boolean successful = false;
 		Session session = null;

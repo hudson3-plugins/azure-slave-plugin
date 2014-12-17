@@ -30,6 +30,10 @@
 		    		<f:textbox default="60" />
 				</f:entry>
 				
+				<f:entry title="${%shutdownOnIdle}" field="shutdownOnIdle"  help="/plugin/azure-slave/help-shutdownOnIdle.html">
+ 					<f:checkbox/>
+    		 	</f:entry>				
+				
 				<f:slave-mode name="useSlaveAlwaysIfAvail" node="${instance}" help="/plugin/azure-slave/help-slaveMode.html" default="EXCLUSIVE"/>
 			</f:section>
 		 	 
