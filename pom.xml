@@ -8,7 +8,7 @@
 
 	<groupId>com.microsoftopentechnologies</groupId>
 	<artifactId>azure-slave</artifactId>
-	<version>0.2.1-SNAPSHOT</version>
+	<version>0.3.0-SNAPSHOT</version>
 	<packaging>hpi</packaging>
 	<name>Azure Slave Plugin</name>
 	<description>Provisions slave on Azure cloud</description>
