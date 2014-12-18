@@ -242,9 +242,12 @@ public class AzureSlave extends AbstractCloudSlave  {
 	
 	public void idleTimeout() throws Exception {
 		if (shutdownOnIdle) {
-			LOGGER.info("AzureSlave: idleTimeout: shutdownOnIdle is true, shutting down slave "+this.getDisplayName());
-			AzureManagementServiceDelegate.shutdownVirtualMachine(this);
-			setDeleteSlave(false);
+			// Call shutdown only if the slave is online
+			if (isVMAliveOrHealthy()) {
+				LOGGER.info("AzureSlave: idleTimeout: shutdownOnIdle is true, shutting down slave "+this.getDisplayName());
+				AzureManagementServiceDelegate.shutdownVirtualMachine(this);
+				setDeleteSlave(false);
+			}
 		} else {
 			LOGGER.info("AzureSlave: idleTimeout: shutdownOnIdle is false, deleting slave "+this.getDisplayName());
 			setDeleteSlave(true);
@@ -262,6 +265,10 @@ public class AzureSlave extends AbstractCloudSlave  {
 		AzureManagementServiceDelegate.terminateVirtualMachine(this, true);
 		setDeleteSlave(true);
 		Hudson.getInstance().removeNode(this);
+	}
+	
+	public boolean isVMAliveOrHealthy() throws Exception {		
+		return AzureManagementServiceDelegate.isVMAliveOrHealthy(this);
 	}
 	
 	public void setTemplateStatus(String templateStatus, String templateStatusDetails) {

@@ -195,24 +195,65 @@ public class AzureCloud extends Cloud {
 					Computer.threadPoolForRemoting.submit(new Callable<Node>() {
 						
 						public Node call() throws Exception {
+							LOGGER.info("Azure Cloud: provision: inside call method");
+							
+							// Verify if there are any shutdown(deallocated) nodes that can be reused.
+							for (Computer slaveComputer : Hudson.getInstance().getComputers()) {
+								LOGGER.info("Azure Cloud: provision: got slave computer "+slaveComputer.getName());
+								if (slaveComputer instanceof AzureComputer && slaveComputer.isOffline()) {
+									AzureComputer azureComputer = (AzureComputer)slaveComputer;
+									AzureSlave slaveNode = azureComputer.getNode();
+									
+									LOGGER.info("Azure Cloud: provision: slave node"+slaveNode.getLabelString());
+									LOGGER.info("Azure Cloud: provision: slave template"+slaveTemplate.getLabels());
+
+									if (!slaveNode.isDeleteSlave() && slaveNode.getLabelString().equalsIgnoreCase(slaveTemplate.getLabels())) {
+										try {
+											if(AzureManagementServiceDelegate.isVirtualMachineExists(slaveNode)) {
+												LOGGER.info("Found existing node , starting VM "+slaveNode.getNodeName());
+												AzureManagementServiceDelegate.startVirtualMachine(slaveNode);
+												// set virtual machine details again
+												Thread.sleep(30 * 1000); // wait for 30 seconds
+												 AzureManagementServiceDelegate.setVirtualMachineDetails(slaveNode, slaveTemplate);
+												 Hudson.getInstance().addNode(slaveNode);
+												 if (slaveNode.getSlaveLaunchMethod().equalsIgnoreCase("SSH")) 
+													 slaveNode.toComputer().connect(false).get();
+												 else
+													// Wait until node is online
+													 waitUntilOnline(slaveNode);
+												 azureComputer.setAcceptingTasks(true);
+												 return slaveNode;
+											} else {
+												slaveNode.setDeleteSlave(true);
+											}
+										} catch (Exception e) {
+											// TODO Auto-generated catch block
+											e.printStackTrace();
+										}
+									}
+									
+								}
+							}
+							
+							LOGGER.info("Azure Cloud: provision: Provisioning new slave for label "+slaveTemplate.getLabels());
+
 							@SuppressWarnings("deprecation")
 							AzureSlave slave = slaveTemplate.provisionSlave(new StreamTaskListener(System.out));
 							// Get virtual machine properties
 							LOGGER.info("Azure Cloud: provision: Getting virtual machine properties for slave "+slave.getNodeName() 
 									+ " with OS "+slave.getOsType());
 							slaveTemplate.setVirtualMachineDetails(slave);
-							
 							try {
 								if (slave.getSlaveLaunchMethod().equalsIgnoreCase("SSH")) {
-									 slaveTemplate.waitForReadyRole(slave);
-									 LOGGER.info("Azure Cloud: provision: Waiting for ssh server to comeup");
-									 Thread.sleep(2 * 60 * 1000);
+									// slaveTemplate.waitForReadyRole(slave);
+									// LOGGER.info("Azure Cloud: provision: Waiting for ssh server to comeup");
+									// Thread.sleep(2 * 60 * 1000);
 									 LOGGER.info("Azure Cloud: provision: Adding slave to azure nodes ");
 									 Hudson.getInstance().addNode(slave);
 									 slave.toComputer().connect(false).get();
 								 } else if (slave.getSlaveLaunchMethod().equalsIgnoreCase("JNLP")) {
 									 LOGGER.info("Azure Cloud: provision: Checking for slave status");
-									 slaveTemplate.waitForReadyRole(slave);
+									 // slaveTemplate.waitForReadyRole(slave);
 									 LOGGER.info("Azure Cloud: provision: Adding slave to azure nodes ");
 									 Hudson.getInstance().addNode(slave);
 									 
@@ -224,6 +265,7 @@ public class AzureCloud extends Cloud {
 								throw e;
 							}
 							return slave;
+						
 						}
 					}), slaveTemplate.getNoOfParallelJobs()));
 
@@ -272,7 +314,9 @@ public class AzureCloud extends Cloud {
 	
 	private static void markSlaveForDeletion(AzureSlave slave, String message) {
 		slave.setTemplateStatus(Constants.TEMPLATE_STATUS_DISBALED, message);
-		slave.toComputer().setTemporarilyOffline(true, OfflineCause.create(Messages._Slave_Failed_To_Connect()));
+		if (slave.toComputer() != null) {
+			slave.toComputer().setTemporarilyOffline(true, OfflineCause.create(Messages._Slave_Failed_To_Connect()));
+		}
 		slave.setDeleteSlave(true);
 	}
 	
