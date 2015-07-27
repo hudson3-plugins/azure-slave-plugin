@@ -1,195 +1,183 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
-	<modelVersion>4.0.0</modelVersion>
-	<parent>
-		<groupId>org.eclipse.hudson.plugins</groupId>
-		<artifactId>hudson-plugin-parent</artifactId>
-		<version>3.1.2</version>
-	</parent>
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.eclipse.hudson.plugins</groupId>
+    <artifactId>hudson-plugin-parent</artifactId>
+    <version>3.3.0</version>
+  </parent>
 
-	<groupId>com.microsoftopentechnologies</groupId>
-	<artifactId>azure-slave</artifactId>
-	<version>0.3.0-SNAPSHOT</version>
-	<packaging>hpi</packaging>
-	<name>Azure Slave Plugin</name>
-	<description>Provisions slave on Azure cloud</description>
-	<url>http://wiki.hudson-ci.org/display/HUDSON/Azure+Slave+Plugin</url>
+  <groupId>com.microsoftopentechnologies</groupId>
+  <artifactId>azure-slave-plugin</artifactId>
+  <version>0.3.0-SNAPSHOT</version>
+  <packaging>hpi</packaging>
+  <name>Azure Slave Plugin</name>
+  <description>Provisions slave on Azure cloud</description>
+  <url>http://wiki.hudson-ci.org/display/HUDSON/Azure+Slave+Plugin</url>
 
-	<properties>
-		<hudsonTags>cluster</hudsonTags>
-		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-	</properties>
+  <properties>
+    <hudsonTags>cluster</hudsonTags>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <jackson.version>2.5.4</jackson.version>
+  </properties>
 
-	<licenses>
-		<license>
-			<name>Apache License, Version 2.0 (the "License")</name>
-			<comments>Licensed under the Apache License, Version 2.0 (the "License").</comments>
-		</license>
-	</licenses>
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0 (the "License")</name>
+      <comments>Licensed under the Apache License, Version 2.0 (the "License").</comments>
+    </license>
+  </licenses>
 
-	<developers>
-		<developer>
-			<id>martinsawicki</id>
-			<name>Martin Sawicki</name>
-			<email>marcins@microsoft.com</email>
-		</developer>
-		<developer>
-			<id>snallami</id>
-			<name>Suresh Nallamilli</name>
-			<email>snallami@gmail.com</email>
-		</developer>
-	</developers>
+  <developers>
+    <developer>
+      <id>martinsawicki</id>
+      <name>Martin Sawicki</name>
+      <email>marcins@microsoft.com</email>
+    </developer>
+    <developer>
+      <id>snallami</id>
+      <name>Suresh Nallamilli</name>
+      <email>snallami@gmail.com</email>
+    </developer>
+    <developer>
+      <id>ilgrosso</id>
+      <name>Francesco Chicchiriccò</name>
+      <email>ilgrosso@apache.org</email>
+    </developer>
+    <developer>
+      <id>fmartelli</id>
+      <name>Fabio Martelli</name>
+      <email>fmartelli@apache.org</email>
+    </developer>
+  </developers>
 
-	<dependencies>
+  <dependencies>
+    <dependency>
+      <groupId>com.microsoft.azure</groupId>
+      <artifactId>azure-storage</artifactId>
+      <version>2.1.0</version>
+    </dependency>
 
-		<dependency>
-			<groupId>com.microsoft.windowsazure.storage</groupId>
-			<artifactId>microsoft-windowsazure-storage-sdk</artifactId>
-			<version>1.0.0</version>
-		</dependency>
+    <dependency>
+      <groupId>com.microsoft.azure</groupId>
+      <artifactId>azure-keyvault</artifactId>
+      <version>0.8.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.microsoft.azure</groupId>
+      <artifactId>azure-mgmt-resources</artifactId>
+      <version>0.8.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.microsoft.azure</groupId>
+      <artifactId>azure-mgmt-network</artifactId>
+      <version>0.8.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.microsoft.azure</groupId>
+      <artifactId>azure-mgmt-compute</artifactId>
+      <version>0.8.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.microsoft.azure</groupId>
+      <artifactId>azure-mgmt-storage</artifactId>
+      <version>0.8.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>com.microsoft.azure</groupId>
+      <artifactId>azure-svc-mgmt</artifactId>
+      <version>0.8.0-SNAPSHOT</version>
+    </dependency>
 
-		<dependency>
-			<groupId>com.microsoft.windowsazure</groupId>
-			<artifactId>microsoft-azure-api-core</artifactId>
-			<version>0.5.0</version>
-		</dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
 
-		<dependency>
-			<groupId>com.microsoft.windowsazure</groupId>
-			<artifactId>microsoft-azure-api-management</artifactId>
-			<version>0.5.0</version>
-		</dependency>
+    <dependency>
+      <groupId>com.jcraft</groupId>
+      <artifactId>jsch</artifactId>
+      <version>0.1.53</version>
+    </dependency>
+  </dependencies>
 
-		<dependency>
-			<groupId>com.microsoft.windowsazure</groupId>
-			<artifactId>microsoft-azure-api-management-compute</artifactId>
-			<version>0.5.0</version>
-		</dependency>
-		
-		<dependency>
-  			<groupId>com.microsoft.windowsazure</groupId>
- 			<artifactId>microsoft-azure-api-management-network</artifactId>
-  			<version>0.5.0</version>
-		</dependency>
+  <scm>
+    <connection>scm:git:git://github.com/hudson3-plugins/azure-slave-plugin.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/hudson3-plugins/azure-slave-plugin.git</developerConnection>
+    <url>https://github.com/hudson3-plugins/azure-slave-plugin</url>
+    <tag>HEAD</tag>
+  </scm>
 
-		<dependency>
-			<groupId>com.microsoft.windowsazure</groupId>
-			<artifactId>microsoft-azure-api-management-storage</artifactId>
-			<version>0.5.0</version>
-		</dependency>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-release-plugin</artifactId>
+        <version>2.5</version>
+        <dependencies>
+          <dependency>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-scm-plugin</artifactId>
+            <version>1.8.1</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+    </plugins>
+  </build>
 
-		<dependency>
-			<groupId>org.apache.httpcomponents</groupId>
-			<artifactId>httpclient</artifactId>
-			<version>4.3.3</version>
-		</dependency>
-
-		<dependency>
-			<groupId>javax.inject</groupId>
-			<artifactId>javax.inject</artifactId>
-			<version>1</version>
-		</dependency>
-
-		<dependency>
-			<groupId>javax.mail</groupId>
-			<artifactId>mail</artifactId>
-			<version>1.4.7</version>
-		</dependency>
-
-
-		<dependency>
-			<groupId>com.sun.jersey</groupId>
-			<artifactId>jersey-client</artifactId>
-			<version>1.18</version>
-		</dependency>
-
-		<dependency>
-			<groupId>com.sun.jersey</groupId>
-			<artifactId>jersey-json</artifactId>
-			<version>1.18</version>
-		</dependency>
-
-		<dependency>
-			<groupId>org.bouncycastle</groupId>
-			<artifactId>bcprov-jdk16</artifactId>
-			<version>1.46</version>
-		</dependency>
-
-		<dependency>
-			<groupId>com.jcraft</groupId>
-			<artifactId>jsch</artifactId>
-			<version>0.1.51</version>
-		</dependency>
-
-	</dependencies>
-
-
-	<scm>
-		<connection>scm:git:git://github.com/hudson3-plugins/azure-slave-plugin.git</connection>
-		<developerConnection>scm:git:ssh://git@github.com/hudson3-plugins/azure-slave-plugin.git</developerConnection>
-		<url>https://github.com/hudson3-plugins/azure-slave-plugin</url>
-		<tag>HEAD</tag>
-	</scm>
-
-	<build>
-		<plugins>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-release-plugin</artifactId>
-				<version>2.5</version>
-				<dependencies>
-					<dependency>
-						<groupId>org.apache.maven.plugins</groupId>
-						<artifactId>maven-scm-plugin</artifactId>
-						<version>1.8.1</version>
-					</dependency>
-				</dependencies>
-			</plugin>
-		</plugins>
-	</build>
-
-	<profiles>
-		<profile>
-			<id>hudson-publish</id>
-			<distributionManagement>
-				<snapshotRepository>
-					<id>sonatype-nexus-snapshots</id>
-					<name>Sonatype Nexus Snapshots</name>
-					<url>https://oss.sonatype.org/content/repositories/snapshots</url>
-				</snapshotRepository>
-				<repository>
-					<id>sonatype-nexus-staging</id>
-					<name>Nexus Release Repository</name>
-					<url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-				</repository>
-			</distributionManagement>
-			<activation>
-				<property>
-					<name>performRelease</name>
-					<value>true</value>
-				</property>
-			</activation>
-			<build>
-				<plugins>
-					<plugin>
-						<groupId>org.apache.maven.plugins</groupId>
-						<artifactId>maven-gpg-plugin</artifactId>
-						<version>1.1</version>
-						<configuration>
-							<mavenExecutorId>forked-path</mavenExecutorId>
-						</configuration>
-						<executions>
-							<execution>
-								<id>sign-artifacts</id>
-								<phase>verify</phase>
-								<goals>
-									<goal>sign</goal>
-								</goals>
-							</execution>
-						</executions>
-					</plugin>
-				</plugins>
-			</build>
-		</profile>
-	</profiles>
+  <profiles>
+    <profile>
+      <id>hudson-publish</id>
+      <distributionManagement>
+        <snapshotRepository>
+          <id>sonatype-nexus-snapshots</id>
+          <name>Sonatype Nexus Snapshots</name>
+          <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+        </snapshotRepository>
+        <repository>
+          <id>sonatype-nexus-staging</id>
+          <name>Nexus Release Repository</name>
+          <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+      </distributionManagement>
+      <activation>
+        <property>
+          <name>performRelease</name>
+          <value>true</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>1.1</version>
+            <configuration>
+              <mavenExecutorId>forked-path</mavenExecutorId>
+            </configuration>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

@@ -13,13 +13,26 @@
  See the License for the specific language governing permissions and
  limitations under the License.
  */
-package com.microsoftopentechnologies.azure.util;
+package com.microsoftopentechnologies.azure.exceptions;
 
-public enum FailureStage {
+public class UnrecoverableCloudException extends AzureCloudException {
 
-    VALIDATION,
-    PREPROVISIONING,
-    PROVISIONING,
-    POSTPROVISIONING
+    public UnrecoverableCloudException(final String message) {
+        super(message);
+    }
+
+    public UnrecoverableCloudException() {
+        super();
+    }
+
+    public UnrecoverableCloudException(final String msg, final Exception excep) {
+        super(msg, excep);
+    }
+
+    public UnrecoverableCloudException(final Exception excep) {
+        super(excep);
+    }
+
+    private static final long serialVersionUID = -8157417759485046943L;
 
 }

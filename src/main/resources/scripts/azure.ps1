@@ -1,9 +1,9 @@
 Set-ExecutionPolicy Unrestricted
-$jenkinsServerUrl = $args[0]
+$hudsonServerUrl = $args[0]
 $vmName = $args[1]
 
-$jenkinsSlaveJarUrl = $jenkinsServerUrl + "jnlpJars/slave.jar"
-$jnlpUrl=$jenkinsServerUrl + 'computer/' + $vmName + '/slave-agent.jnlp'
+$hudsonSlaveJarUrl = $hudsonServerUrl + "jnlpJars/slave.jar"
+$jnlpUrl=$hudsonServerUrl + 'computer/' + $vmName + '/slave-agent.jnlp'
 
 $baseDir = 'c:\azurecsdir'
 $JDKUrl = 'http://azure.azulsystems.com/zulu/zulu1.7.0_51-7.3.0.4-win64.zip?hudson'
@@ -30,16 +30,16 @@ If(-not((Test-Path $destinationJDKZipPath)))
 	$javaInstallDir.Copyhere($zip_file.items())
 	
 	$wc = New-Object System.Net.WebClient
-	$wc.DownloadFile($jenkinsSlaveJarUrl, $destinationSlaveJarPath)
+	$wc.DownloadFile($hudsonSlaveJarUrl, $destinationSlaveJarPath)
 	
 	$scriptPath = Get-ScriptPath
-	$content = 'powershell.exe -ExecutionPolicy Unrestricted -file' + ' '+ $scriptPath + ' '+ $jenkinsServerUrl + ' ' + $vmName
+	$content = 'powershell.exe -ExecutionPolicy Unrestricted -file' + ' '+ $scriptPath + ' '+ $hudsonServerUrl + ' ' + $vmName
 	$commandFile = $baseDir + '\slaveagenttask.cmd'
 	$content | Out-File $commandFile -Encoding ASCII -Append
 	schtasks /create /tn "Hudson slave agent" /ru "SYSTEM" /sc onstart /rl HIGHEST /delay 0000:30 /tr $commandFile /f
 }
 
-# Launching jenkins slave agent					  
+# Launching hudson slave agent					  
 $process = New-Object System.Diagnostics.Process;
 $process.StartInfo.FileName = $javaExe;
 $process.StartInfo.Arguments = "-jar $destinationSlaveJarPath -jnlpUrl $jnlpUrl"

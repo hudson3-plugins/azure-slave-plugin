@@ -16,19 +16,23 @@
 package com.microsoftopentechnologies.azure.exceptions;
 
 public class AzureCloudException extends Exception {
-	
-	public AzureCloudException(String message) {
+
+    public AzureCloudException(final String message) {
         super(message);
     }
-    
-	public AzureCloudException() {
+
+    public AzureCloudException() {
         super();
     }
-    
-	public AzureCloudException(String msg, Exception excep) {
+
+    public AzureCloudException(final String msg, final Exception excep) {
         super(msg, excep);
     }
-    
-	private static final long serialVersionUID = -8157417759485046943L;
+
+    public AzureCloudException(final Exception excep) {
+        super(excep);
+    }
+
+    private static final long serialVersionUID = -8157417759485046943L;
 
 }

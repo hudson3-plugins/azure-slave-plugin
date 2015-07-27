@@ -16,73 +16,70 @@
 package com.microsoftopentechnologies.azure;
 
 import java.io.IOException;
+import java.util.concurrent.Callable;
 import java.util.logging.Logger;
+
+import com.microsoftopentechnologies.azure.exceptions.AzureCloudException;
+import com.microsoftopentechnologies.azure.retry.DefaultRetryStrategy;
+import com.microsoftopentechnologies.azure.util.ExecutionEngine;
 
 import hudson.model.Hudson;
 import hudson.Extension;
 import hudson.model.AsyncPeriodicWork;
 import hudson.model.TaskListener;
 import hudson.model.Computer;
+import java.util.logging.Level;
 
 @Extension
 public final class AzureSlaveCleanUpTask extends AsyncPeriodicWork {
-	private static final Logger LOGGER = Logger.getLogger(AzureSlaveCleanUpTask.class.getName());
 
-	public AzureSlaveCleanUpTask() {
-		super("Azure slave clean task");
-	}
+    private static final Logger LOGGER = Logger.getLogger(AzureSlaveCleanUpTask.class.getName());
 
-	public void execute(TaskListener arg0) throws IOException, InterruptedException {
-		for (Computer computer : Hudson.getInstance().getComputers()) {
-			if (computer instanceof AzureComputer) {
-				AzureComputer azureComputer = (AzureComputer)computer;
-				AzureSlave slaveNode = azureComputer.getNode();
-				
-				try {
-					if (azureComputer.isOffline()) {
-						if (!slaveNode.isDeleteSlave()) {
-							// Find out if node exists in azure , if not continue with delete else do not delete node 
-							// although it is offline. May be JNLP or SSH launch is in progress
-							if(AzureManagementServiceDelegate.isVirtualMachineExists(slaveNode)) {
-								LOGGER.info("AzureSlaveCleanUpTask: execute: VM "+slaveNode.getDisplayName()+" exists in cloud");
-								continue;
-							}
-						}
-						
-						int retryCount = 0;
-		                boolean successful = false;
-		                
-		                // Retrying for 30 times with 30 seconds wait time between each retry
-		                while (retryCount < 30 && !successful) {
-		                	try {
-		                		slaveNode.idleTimeout();
-		                		successful = true;
-							} catch (Exception e) {
-								retryCount++;
-								LOGGER.info("AzureSlaveCleanUpTask: execute: Exception occured while calling timeout on node , \n"
-											+ "Will retry again after 30 seconds. Current retry count "+retryCount + "\n"
-											+ "Error code "+e.getMessage());
-								// We won't get exception for RNF , so for other exception types we can retry
-								try {
-									Thread.sleep(30 * 1000);
-								} catch (InterruptedException e1) {
-									e1.printStackTrace();
-								}
-							}
-	                	}
-		                
-		                Hudson.getInstance().removeNode(slaveNode);
-					}
-				} catch (Exception e) {
-					LOGGER.severe("AzureSlaveCleanUpTask: execute: failed to remove node " +e);
-				}
-			}
-		}
-	}
+    public AzureSlaveCleanUpTask() {
+        super("Azure slave clean task");
+    }
 
-	public long getRecurrencePeriod() {
-		// Every 5 minutes
-		return 5 * 60 * 1000;
-	}
+    @Override
+    public void execute(TaskListener arg0) throws IOException, InterruptedException {
+        for (Computer computer : Hudson.getInstance().getComputers()) {
+            if (computer instanceof AzureComputer) {
+                AzureComputer azureComputer = (AzureComputer) computer;
+                final AzureSlave slaveNode = azureComputer.getNode();
 
+                if (azureComputer.isOffline() && slaveNode.isDeleteSlave()) {
+                    if (AzureManagementServiceDelegate.virtualMachineExists(slaveNode)) {
+                        Callable<Void> task = new Callable<Void>() {
+
+                            @Override
+                            public Void call() throws Exception {
+                                slaveNode.idleTimeout();
+                                return null;
+                            }
+                        };
+
+                        try {
+                            ExecutionEngine.executeWithRetry(task, new DefaultRetryStrategy(
+                                    3, // max retries
+                                    10, // Default backoff in seconds 
+                                    30 * 60 // Max timeout in seconds
+                            ));
+                        } catch (AzureCloudException exception) {
+                            // No need to throw exception back, just log and move on. 
+                            LOGGER.log(Level.INFO,
+                                    "AzureSlaveCleanUpTask: execute: failed to remove " + slaveNode.getDisplayName(),
+                                    exception);
+                        }
+                    } else {
+                        Hudson.getInstance().removeNode(slaveNode);
+                    }
+                }
+            }
+        }
+    }
+
+    @Override
+    public long getRecurrencePeriod() {
+        // Every 5 minutes
+        return 15 * 60 * 1000;
+    }
 }

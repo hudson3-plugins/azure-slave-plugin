@@ -18,31 +18,39 @@ package com.microsoftopentechnologies.azure.retry;
 import java.util.concurrent.Callable;
 
 import com.microsoftopentechnologies.azure.exceptions.AzureCloudException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * @author Suresh Nallamilli (snallami@gmail.com)
  */
 public class RetryTask<T> implements Callable<T> {
-	private Callable<T> task;
-	private RetryStrategy retryStrategy;
-	
-	public RetryTask(Callable<T> task) {
-		this.task = task;
-		this.retryStrategy = new DefaultRetryStrategy();
-	}
-	
-	public RetryTask(Callable<T> task, RetryStrategy retryStrategy) {
-		this.task = task;
-		this.retryStrategy = retryStrategy;
-	}
 
-	public T call() throws AzureCloudException {
-		while (true) {
-			try {
-				return task.call();
-			} catch (Exception e) {
-				retryStrategy.handleRetry(e);
-			}
-		}
-	}
+    private static final Logger LOGGER = Logger.getLogger(RetryTask.class.getName());
+
+    private final Callable<T> task;
+
+    private final RetryStrategy retryStrategy;
+
+    public RetryTask(Callable<T> task) {
+        this.task = task;
+        this.retryStrategy = new DefaultRetryStrategy();
+    }
+
+    public RetryTask(Callable<T> task, RetryStrategy retryStrategy) {
+        this.task = task;
+        this.retryStrategy = retryStrategy;
+    }
+
+    @Override
+    public T call() throws AzureCloudException {
+        while (true) {
+            try {
+                return task.call();
+            } catch (Exception e) {
+                LOGGER.log(Level.INFO, "Handle retry due to: ", e);
+                retryStrategy.handleRetry(e);
+            }
+        }
+    }
 }
