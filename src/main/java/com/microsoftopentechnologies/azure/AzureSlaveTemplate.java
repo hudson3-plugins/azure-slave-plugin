@@ -331,8 +331,6 @@ public class AzureSlaveTemplate implements Describable<AzureSlaveTemplate> {
     }
 
     public void waitForReadyRole(final AzureSlave slave) throws Exception {
-        final Configuration config = ServiceDelegateHelper.getConfiguration(azureCloud);
-
         Callable<Void> task = new Callable<Void>() {
 
             @Override
@@ -343,7 +341,8 @@ public class AzureSlaveTemplate implements Describable<AzureSlaveTemplate> {
                             "AzureSlaveTemplate: waitForReadyRole: Current status of virtual machine {0} is {1}",
                             new Object[] { slave.getNodeName(), status });
                     Thread.sleep(30 * 1000);
-                    status = AzureManagementServiceDelegate.getVirtualMachineStatus(config, slave.getNodeName());
+                    status = AzureManagementServiceDelegate.getVirtualMachineStatus(
+                            ServiceDelegateHelper.getConfiguration(azureCloud), slave.getNodeName());
                     LOGGER.info("AzureSlaveTemplate: waitForReadyRole: "
                             + "Waiting for 30 more seconds for role to be provisioned");
                 }
