@@ -36,6 +36,7 @@ import hudson.slaves.AbstractCloudSlave;
 import hudson.slaves.JNLPLauncher;
 import hudson.slaves.NodeProperty;
 import hudson.slaves.ComputerLauncher;
+import hudson.slaves.OfflineCause;
 import hudson.slaves.RetentionStrategy;
 import java.util.logging.Level;
 
@@ -334,6 +335,7 @@ public class AzureSlave extends AbstractCloudSlave {
             if (this.getComputer().isOnline()) {
                 LOGGER.log(Level.INFO, "AzureSlave: idleTimeout: shutdownOnIdle is true, shutting down slave {0}", this.
                         getDisplayName());
+                this.getComputer().disconnect(OfflineCause.create(Messages._IDLE_TIMEOUT_SHUTDOWN()));
                 AzureManagementServiceDelegate.shutdownVirtualMachine(this);
                 setDeleteSlave(false);
             }
@@ -363,7 +365,7 @@ public class AzureSlave extends AbstractCloudSlave {
         return AzureManagementServiceDelegate.isVMAliveOrHealthy(this);
     }
 
-    public void setTemplateStatus(String templateStatus, String templateStatusDetails) {
+    public void setTemplateStatus(final String templateStatus, final String templateStatusDetails) {
         AzureCloud azureCloud = getCloud();
         AzureSlaveTemplate slaveTemplate = azureCloud.getAzureSlaveTemplate(templateName);
 

@@ -15,6 +15,11 @@
  */
 package com.microsoftopentechnologies.azure;
 
+import static hudson.model.Computer.DELETE;
+
+import hudson.model.AbstractProject;
+import hudson.model.Executor;
+import hudson.model.Hudson;
 import java.io.IOException;
 import java.util.logging.Logger;
 
@@ -24,24 +29,62 @@ import org.kohsuke.stapler.HttpResponse;
 import hudson.slaves.AbstractCloudComputer;
 import hudson.slaves.OfflineCause;
 import java.util.logging.Level;
+import javax.servlet.ServletException;
+import org.kohsuke.stapler.StaplerRequest;
 
 public class AzureComputer extends AbstractCloudComputer<AzureSlave> {
 
     private static final Logger LOGGER = Logger.getLogger(AzureComputer.class.getName());
+
+    private boolean provisioned = false;
+
+    private final Object tsafe = new Object();
+
+    /**
+     * Parameter in request for deleting the slave.
+     */
+    private static final String DELETE_MODE_KEY = "deleteMode";
+
+    /**
+     * Key for delete mode when the jobs are stopping before the slave will delete
+     */
+    private static final String DELETE_MODE_STOP_KEY = "0";
 
     public AzureComputer(final AzureSlave slave) {
         super(slave);
     }
 
     @Override
+    @SuppressWarnings({ "rawtypes" })
+    public HttpResponse doDeleteWithParam(final StaplerRequest req) throws IOException, ServletException {
+        checkPermission(DELETE);
+        String deleteMode = req.getParameter(DELETE_MODE_KEY);
+        if (deleteMode != null) {
+            if (DELETE_MODE_STOP_KEY.equals(deleteMode)) {
+                if (getRunningJobs() != null) {
+                    for (AbstractProject job : getRunningJobs()) {
+                        Hudson.getInstance().getQueue().cancel(job);
+                    }
+                }
+                for (Executor executor : getExecutors()) {
+                    executor.interrupt();
+                }
+            }
+        }
+
+        return doDoDelete();
+    }
+
+    @Override
     public HttpResponse doDoDelete() throws IOException {
+        checkPermission(DELETE);
         AzureSlave slave = getNode();
 
         if (slave != null) {
             LOGGER.log(Level.INFO, "AzureComputer: doDoDelete called for slave {0}", slave.getNodeName());
             setTemporarilyOffline(true, OfflineCause.create(Messages._Delete_Slave()));
-
             slave.setDeleteSlave(true);
+
             try {
                 deleteSlave();
             } catch (Exception e) {
@@ -63,14 +106,31 @@ public class AzureComputer extends AbstractCloudComputer<AzureSlave> {
             if (slave.getChannel() != null) {
                 slave.getChannel().close();
             }
+
             try {
                 slave.deprovision();
             } catch (Exception e) {
-
                 LOGGER.log(Level.SEVERE, "AzureComputer : Exception occurred while deleting  {0} slave", getName());
                 LOGGER.log(Level.SEVERE, "Root cause", e);
                 throw e;
             }
+        }
+    }
+
+    public void setProvisioned(boolean provisioned) {
+        this.provisioned = provisioned;
+    }
+
+    public boolean isProvisioned() {
+        return this.provisioned;
+    }
+
+    public void waitUntilOnline() throws InterruptedException {
+        synchronized (this.tsafe) {
+            while (!this.isOnline()) {
+                this.wait(1000);
+            }
+            setProvisioned(true);
         }
     }
 }
